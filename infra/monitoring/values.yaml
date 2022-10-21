@@ -1,6 +1,14 @@
 alertmanager:
   enabled: false
 
+prometheus:
+  prometheusSpec:
+    # if this is true then you have to add labels under the podMonitorSelector etc. inside the custom resource `prometheus` to the podmonitor resources etc.
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+
 prometheus-node-exporter:
   hostRootFsMount:
     enabled: false
