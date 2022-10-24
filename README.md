@@ -56,6 +56,8 @@ kubectl create -f crds/
 helmfile apply
 ```
 
+![monitoring namespace pods](screenshots/monitoring-ns-pods.png)
+
 ### Access Grafana
 
 ```sh
@@ -88,6 +90,12 @@ kubectl create ns kuard
 # deploy kustomize output
 kustomize build | kubectl -n kuard apply -f -
 ```
+
+![kuard pod](screenshots/kuard-pod.png)
+
+![kuard running](screenshots/kuard-running.png)
+
+![kuard as scrape target](screenshots/kuard-scrape-target.png)
 
 Tasks
 =====
@@ -147,6 +155,8 @@ Increasing (or decreasing) the amount of replicas can be done by executing the f
 kubectl scale -n kuard deployment kuard --replicas 2
 ```
 
+![kuard scaled to 2 replicas](screenshots/kuard-manually-scaled.png)
+
 It's also possible to do that with the underlying `ReplicaSet` instead of the `Deployment`.
 
 Since manual scaling is error prone and can take a lot of time it might be better to look for an automated way. For this reason there is the so called `HorizontalPodAutoscaler` (HPA) object within Kubernetes. In short HPAs can be used to track specific metrics of e.g. a `Deployment` and change the numbers of replicas accordingly. The metrics are scraped via the metrics-server which usually runs as part of every Kubernetes installation.
@@ -201,6 +211,8 @@ Whenever the `.spec` part within a `Deployment` changes then there will be a new
 kubectl rollout -n kuard history deployment kuard
 ```
 
+![kuard deployment history](screenshots/kuard-deployment-history.png)
+
 Unfortunately the `CHANGE-CAUSE` column is not used by default and it might not be in the [future](https://github.com/kubernetes/kubernetes/issues/40422). Anyway it's possible to rollback to the latest or any other previous revision with the `rollout undo` command.
 
 ```sh
@@ -222,6 +234,8 @@ helm rollback -n monitoring prom 1
 ```
 
 Here the revision parameter is optional as well. If it's omitted then it will use the previous revision automatically.
+
+![Hem History](screenshots/helm-history.png)
 
 ### GitOps
 
@@ -277,6 +291,8 @@ kubectl port-forward -n monitoring svc/prom-kube-prometheus-stack-prometheus 909
 ```
 
 Afterwards you can access prometheus in the browser via http://localhost:9090.
+
+![kuard metrics](screenshots/kuard-metrics.png)
 
 ## Which one would be the CI/CD tool of your choice?
 
