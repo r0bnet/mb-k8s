@@ -87,7 +87,45 @@ kustomize build | kubectl -n kuard apply -f -
 Tasks
 =====
 
-## Logging solution within a Kubernetes environment?
+## How could a logging solution in a Kubernetes environment look like?
+
+> Due to memory and CPU constraints the following solution has not been fully tested. Kibana and Elasticsearch alone use 1 CPU and 2 GB of RAM each. Anyway it will be explained how the solutions works and looks like.
+
+A loggin solution usually consists of three different parts. The first part is the component that is able to scrape / gather, filter and forward the logs to some place. This "place" is the second component. It's role is the backend or storage that stores the previously gathered logs and makes it accessible in some way or another. Additionally it should also arrange and sort the logs in way that it can be searched and filtered. The last component accesses the storage to retrieve the logs and visualize them in an user interface. It should be able to send queries to the backend, retrieve the logs and helps the user to search what he/she is looking for.
+Those three parts don't necessarily need to be split into different applications. But it general they're splitted because they solve different problems or accomplish different tasks.
+
+In this solution the three parts are the following:
+
+- Scraping: [Fluent Bit](https://fluentbit.io/)
+- Storage: [Elasticsearch](https://github.com/elastic/elasticsearch)
+- UI: [Kibana](https://github.com/elastic/kibana)
+
+Fluent Bit is lightweight log forwarder and is in this solution running as a `DaemonSet`. On every node it's able to access all the container logs as they're mounted into the FluentBit container. Besides that it can also access the kubelet logs by accessing systemd. After some enrichment (K8s metadata) it will be send to Elasticsearch wherease the streams are splitted by container and node / kubelet logs.
+
+Elasticsearch itself is running as a `StatefulSet` as it needs to store the log data on a persistent storage and it can be used in a clustered mode.
+
+Kibana runs as a `Deployment` as it's a stateless application that is more or less only a UI for Elasticsearch.
+
+All three components are available as individual helm charts and can be deployed as follows.
+
+```sh
+cd infra/logging
+
+# apply all three charts at once
+helmfile apply
+```
+
+Logs should be forwarded and stored in Elasticsearch automatically. To view the logs you need to expose the Kibana service.
+
+```sh
+# enable port forwarding between localhost port 5601 and kibana service on port 5601
+kubectl port-forward -n logging svc/kibana-kibana 5601:5601
+```
+
+Open the browser under http://localhost:5601, create the index pattern (`logstash-*`) and start searching the logs.
+
+This solution is not the only possible way to implement a logging system. Those three parts can be exchanged or replaced by other tools. For example instead of using Fluent Bit you could use [Fluentd](https://www.fluentd.org/) or [Logstash](https://github.com/elastic/logstash).
+Elasticsearch and Kibana could be replaced by [Loki](https://github.com/grafana/loki) (storage) and Grafana (UI), especially since Grafana is already used as part of the monitoring solution.
 
 ## How to achieve application scalability caused by a lot of requests?
 
@@ -249,11 +287,54 @@ Additional Questions
 
 ## How do I expose an application via an ingress controller and what are ingress controllers in general used for?
 
+Ingress Controllers are (more or less) layer 7 load balancers which can be run in Kubernetes cluster. The name "controller" indicate that they listen on the K8s API to get notified when `Ingress` resources are created, updated or deleted. The controllers then adjust their configuration depending on what the `Ingress` resource is expecting. THe ingress controller usually comes with a K8s service which can be exposed with e.g. type `LoadBalancer` and can be seen as a single entry point to one or more services that are deployed in the cluster.
+
+There are some well known L7 load balancers (Nginx, HAProxy etc.) but also some other tools like Traefik.
+
+The `Ingress` resources are built-in and don't need to be deployed explicitly. The main parts that can be configured in an `Ingress` resource are:
+
+- Domains
+- Paths
+- Backends
+- TLS
+
+Domains will tell the ingress controller on which domain they should listen (HTTP `Host` header). Paths allow the user to separate the URL paths between different backends. A backend is the name of a service and a port so that the ingress controller knows where to route incoming requests. When it comes to TLS you can define where the ingress controller can find TLS certificates (in a secret) to secure the connection between the client and the L7 load balancer itself.
+
+These are the default features that ingress controllers support. Some implementations are extend these by either introducing custom resources or annotations.
 
 ## How could alerting in a K8s cluster look like? Which options are available?
 
+`kube-prometheus-stack` comes per default with [Alertmanager](https://prometheus.io/docs/alerting/latest/alertmanager/). It integrates perfectly fine with prometheus, can validate alert rules and send alerts to various systems. This could be [Slack](https://slack.com), [PagerDuty](https://www.pagerduty.com/), e-mail or a generic HTTP webhook.
+
+This is usually the default alerting method in most setups but depending on the provider that is used (e.g. Azure or AWS) there might be proprietary solutions that integrate much better into the whole platform but come with additional costs.
+
 ## Which options do you have to get data into Promehtheus' TSDB?
+
+The default design is that Prometheus is scraping services (targets) automatically in an interval. This means that the service itself needs to expose a metrics route that Prometheus needs to be able to access.
+If there is a service or job that is not scrapable (e.g. CronJob) it's possible to use the [Pushgateway](https://prometheus.io/docs/practices/pushing/) to push the metrics to this gateway instead of the pull model.
 
 ## Which options do you have to secure sensitive data (e.g. secrets) in a GIT repository? Which one would you choose?
 
+First and foremost secrets should never be in a git repository as long as they're unencrypted. That means there are various ideas how to store them in an encrypted form in the repository or use another mechanism that will not even store the encrypted ones there.
+
+### Encryption
+
+- [sops](https://github.com/mozilla/sops)
+  Can encrypt yaml and json files so that they can be stored in a repository. The encryption key can either be stored locally or in a KMS (e.g Azure Key Vault)
+- [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets)
+  Sealed secrets are custom resources that will be encrypted and stored in the repository. They can be pushed as custom resources to the cluster. The sealed secrets operator will create a `Secret` from a sealed secret.
+- [Helm Secrets](https://github.com/jkroepke/helm-secrets)
+  Builds on top of sops and is a helm plugin. It makes use of conventions and the `helm secrets` command acts as a wrapper around the intended command and will handle all the encryption and decryption things.
+
+### Other solutions
+
+- CSI Driver (e.g. [Azure Key Vault CSI Driver](https://github.com/Azure/secrets-store-csi-driver-provider-azure))
+  Those drivers (Container Storage Interface) can connect to KMS (e.g. Azure Key Vault) and read secrets from there. They will mount selected secrets as files within a volume mount in containers and can be read from there.
+
 ## Which options do you have to completely remove data that has been leaked into a GIT repository by mistake?
+
+Once a secret has been pushed to a Git remote it gets complicated to remove it again. The most simple method would be to remove the remote repository, delete the .git folder locally, create a new one remotely, remove the secret file and push. This has the downside that all users need pull the new repo and the complete history is lost.
+
+If the file has only been comitted locally and not yet pushed then it's also relatively easy to fix the issue with `git reset HEAD~1` to jump to the penultimate commit.
+
+If the history needs to be retained but the secret file needs to be removed then the best way is probably [`git-filter-repo`](https://github.com/newren/git-filter-repo). This is a tool to filter specific files in a repository and rewrite history. For big repositories it can take some time. After the filtering is done it needs to be pushed to the remote and all other users need to pull the repository again.

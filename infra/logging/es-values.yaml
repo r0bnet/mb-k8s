@@ -1,0 +1,22 @@
+replicas: 1
+minimumMasterNodes: 1
+
+rbac:
+  create: true
+
+lifecycle:
+  postStart:
+    exec:
+      command:
+        - bash
+        - -c
+        - |
+          #!/bin/bash
+          LOGSTASH_TEMPLATE_NAME=logstash
+          LOGSTASH_INDEX_PATTERN="logstash-*"
+          NODE_TEMPLATE_NAME=node
+          NODE_INDEX_PATTERN="node-*"
+          ES_URL=http://localhost:9200
+          while [[ "$(curl -s -o /dev/null -w '%{http_code}\n' $ES_URL)" != "200" ]]; do sleep 1; done
+          curl -XPUT "$ES_URL/_template/$LOGSTASH_TEMPLATE_NAME" -H 'Content-Type: application/json' -d'{"index_patterns":['\""$LOGSTASH_INDEX_PATTERN"\"'],"settings":{"number_of_replicas":0}}'
+          curl -XPUT "$ES_URL/_template/$NODE_TEMPLATE_NAME" -H 'Content-Type: application/json' -d'{"index_patterns":['\""$NODE_INDEX_PATTERN"\"'],"settings":{"number_of_replicas":0}}'

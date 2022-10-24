@@ -1,0 +1,11 @@
+serviceMonitor:
+  enabled: true
+  namespace: logging
+
+# mutating admission controller for PrometheusRule is not able to unmarshal the rule for some reason
+# prometheusRule:
+#   enabled: true
+#   namespace: logging
+
+dashboards:
+  enabled: true

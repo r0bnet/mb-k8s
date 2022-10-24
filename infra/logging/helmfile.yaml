@@ -1,0 +1,29 @@
+repositories:
+- name: elastic
+  url: https://helm.elastic.co
+
+- name: fluent
+  url: https://fluent.github.io/helm-charts
+
+releases:
+# - chart: elastic/elasticsearch
+#   name: elasticsearch
+#   namespace: logging
+#   createNamespace: true
+#   version: 7.17.3
+#   values:
+#   - es-values.yaml
+
+- chart: elastic/kibana
+  name: kibana
+  namespace: logging
+  createNamespace: true
+  version: 7.17.3
+
+# - chart: fluent/fluent-bit
+#   name: fluentbit
+#   namespace: logging
+#   createNamespace: true
+#   version: 0.20.9
+#   values:
+#   - fb-values.yaml
