@@ -37,7 +37,12 @@ Prometheus & Grafana
 --------------------
 
 - No alertmanager (not needed according to challenge)
-- node exporter with adjustments to work in virtualized environment
+- Node exporter with adjustments to work in virtualized environment
+  ```yaml
+  prometheus-node-exporter:
+  hostRootFsMount:
+    enabled: false
+  ```
 
 ### Installation
 
@@ -58,13 +63,13 @@ helmfile apply
 kubectl -n monitoring port-forward svc/prom-grafana 8080:80
 ```
 
-Open browser under `http://localhost:8080` and enter credentials `admin:prom-operator`.
+Open browser under `http://localhost:8080` and enter default credentials `admin:prom-operator`.
 
 kuard
 -----
 
 - Deployment is implemented with `kustomize`
-  - This documentation assumes that the standalone tool is installed instead of kubectl subcommand
+  - This documentation assumes that the standalone tool is installed instead of using the `kubectl kustomize` subcommand
 - It consists of:
   - `Deployment`
   - `Service`
@@ -91,16 +96,16 @@ Tasks
 
 > Due to memory and CPU constraints the following solution has not been fully tested. Kibana and Elasticsearch alone use 1 CPU and 2 GB of RAM each. Anyway it will be explained how the solutions works and looks like.
 
-A loggin solution usually consists of three different parts. The first part is the component that is able to scrape / gather, filter and forward the logs to some place. This "place" is the second component. It's role is the backend or storage that stores the previously gathered logs and makes it accessible in some way or another. Additionally it should also arrange and sort the logs in way that it can be searched and filtered. The last component accesses the storage to retrieve the logs and visualize them in an user interface. It should be able to send queries to the backend, retrieve the logs and helps the user to search what he/she is looking for.
+A logging solution usually consists of three different parts. The first part is the component that is able to scrape / gather, filter and forward the logs to some place. This "place" is the second component. It's role is the backend or storage that stores the previously gathered logs and makes it accessible in some way or another. Additionally it should also arrange and sort the logs in way that they can be searched and filtered. The last component accesses the storage to retrieve the logs and visualize them in an user interface. It should be able to send queries to the backend, retrieve the logs and helps the user to search what he/she is looking for.
 Those three parts don't necessarily need to be split into different applications. But it general they're splitted because they solve different problems or accomplish different tasks.
 
-In this solution the three parts are the following:
+In this solution the three parts are the following (also known as __EFK__ stack):
 
 - Scraping: [Fluent Bit](https://fluentbit.io/)
 - Storage: [Elasticsearch](https://github.com/elastic/elasticsearch)
 - UI: [Kibana](https://github.com/elastic/kibana)
 
-Fluent Bit is lightweight log forwarder and is in this solution running as a `DaemonSet`. On every node it's able to access all the container logs as they're mounted into the FluentBit container. Besides that it can also access the kubelet logs by accessing systemd. After some enrichment (K8s metadata) it will be send to Elasticsearch wherease the streams are splitted by container and node / kubelet logs.
+Fluent Bit is lightweight log forwarder and is in this solution running as a `DaemonSet`. On every node it's able to access all the container logs as they're mounted into the Fluent Bit container. Besides that it can also access the kubelet logs by accessing systemd. After some enrichment (K8s metadata) it will be send to Elasticsearch wherease the streams are splitted by container and node / kubelet logs.
 
 Elasticsearch itself is running as a `StatefulSet` as it needs to store the log data on a persistent storage and it can be used in a clustered mode.
 
@@ -129,7 +134,7 @@ Elasticsearch and Kibana could be replaced by [Loki](https://github.com/grafana/
 
 ## How to achieve application scalability caused by a lot of requests?
 
-The simplest method is to increase the `Pod`'s resource limits or to remove them completely. This vertical scaling approach is highly discouraged as it's ignoring the benefits of using a distributed orchestrator like Kubernetes is. 
+The simplest method is to increase the `Pod`'s resource limits or to remove them completely. This vertical scaling approach is highly discouraged as it's ignoring the benefits of using a distributed orchestrator like Kubernetes. 
 
 Instead of deploying a single `Pod` for an app to serve traffic it's better to embed the `Pod` within a `ReplicaSet`. Typically you use a `Deployment` instead of a `ReplicaSet` directly which itself creates and manages `ReplicaSets` underneath.
 
@@ -144,9 +149,9 @@ kubectl scale -n kuard deployment kuard --replicas 2
 
 It's also possible to do that with the underlying `ReplicaSet` instead of the `Deployment`.
 
-Since manual scaling is error prone and can take a lot of time it might be better to look for an automated way. For this reason there is the so called `HorizontalPodAutoscaler` (HPA) object within Kubernetes. In short HPAs can be used to track specific metrics of e.g. a `Deployment` and change the numbers of replicase accordingly. The metrics are scraped via the metrics-server which usually runs as part of every Kubernetes installation.
+Since manual scaling is error prone and can take a lot of time it might be better to look for an automated way. For this reason there is the so called `HorizontalPodAutoscaler` (HPA) object within Kubernetes. In short HPAs can be used to track specific metrics of e.g. a `Deployment` and change the numbers of replicas accordingly. The metrics are scraped via the metrics-server which usually runs as part of every Kubernetes installation.
 
-The demo application includes an HPA (`apps/kuard/hpa.yaml`) that will scale the application in case the average CPU utilization is higher than 70% of the CPU requests. The scale up can be simulated by running a load test tool like `ApacheBench` with the following command.
+The demo application includes an HPA (`apps/kuard/hpa.yaml`) that will scale the application in case the average CPU utilization is higher than 70% of the CPU requests. The scale up can be simulated by running a load test tool like [ApacheBench](https://httpd.apache.org/docs/2.4/programs/ab.html) with the following command.
 
 ```sh
 # enable port forwarding between localhost port 8080 and kuard service on port 80
@@ -166,7 +171,7 @@ In order to reduce the errors that can happen either within manifests, templatin
 
 One of the issues a user can run into with 3rd party applications are custom resources. 3rd party applications like [datree](https://github.com/datreeio/datree), [kubeval](https://kubeval.instrumenta.dev/) and [kubeconform](https://github.com/yannh/kubeconform) usually need to be instructed how to validate custom resources with the help of schema files in JSON format.
 
-If there are no custom resource in use (only default ojects like `Deployment`, `Service`, `ConfigMap`, `Secret` etc.) then the tools mentioned above are a good way to check if the output is valid.
+If there are no custom resources in use (only default ojects like `Deployment`, `Service`, `ConfigMap`, `Secret` etc.) then the tools mentioned above are a good way to check if the output is valid.
 
 An already integrated approach is to use `kubectl` in combination with the `--dry-run` flag. Here it's possible to let either the client or the server validate the rendered template or manifests.
 
@@ -189,14 +194,14 @@ If a deployment of an application is not running as expected then there are mult
 
 ### Manual rollback
 
-Whenever the `.spec` part within a `Deployment` changes then there will be a new history entry. THe history of a `Deployment` can be checked with the following command.
+Whenever the `.spec` part within a `Deployment` changes then there will be a new history entry. The history of a `Deployment` can be checked with the following command.
 
 ```sh
 # print the history for the kuard deployment
 kubectl rollout -n kuard history deployment kuard
 ```
 
-Unfortunately the `CHANGE-CAUSE`column is not used by default and it might not be in the [future](https://github.com/kubernetes/kubernetes/issues/40422). Anyway it's possible to rollback to the latest or any other previous revision with the `rollout undo` command.
+Unfortunately the `CHANGE-CAUSE` column is not used by default and it might not be in the [future](https://github.com/kubernetes/kubernetes/issues/40422). Anyway it's possible to rollback to the latest or any other previous revision with the `rollout undo` command.
 
 ```sh
 kubectl rollout undo deployment kuard [--to-revision=8]
@@ -220,7 +225,7 @@ Here the revision parameter is optional as well. If it's omitted then it will us
 
 ### GitOps
 
-Both methodes above have the downside that it's hard to reason about a change and the rollback. With the [GitOps](https://www.gitops.tech/) approach things become more verbose. No matter if a GitOps tool like [ArgoCD](https://argoproj.github.io/cd/), [Flux](https://fluxcd.io/) or [Jenkins X](https://jenkins-x.io/) or a custom implementation is used every change is done _only_ in Git with one or multiple commits.
+Both methods above have the downside that it's hard to reason about a change and the rollback. With the [GitOps](https://www.gitops.tech/) approach things become more verbose. No matter if a GitOps tool like [ArgoCD](https://argoproj.github.io/cd/), [Flux](https://fluxcd.io/) or [Jenkins X](https://jenkins-x.io/) or a custom implementation is used every change is done _only_ in Git with one or multiple commits.
 
 Let's say there's a new deployment triggered by a commit that changes a container's image to a new tag. First of all we can see the change in the Git history with (hopefully) a meaningful message. When the new container is faulty or doesn't even start and a rollback is needed then the last commit can simply be reverted and pushed. That will also rollback the `Deployment` to the previous, working version.
 
@@ -228,14 +233,14 @@ Let's say there's a new deployment triggered by a commit that changes a containe
 # git the commit hash that is faulty (-1 is just the latest)
 git log -1
 
-# revert the hash return by previous command and add a meaningful message
+# revert the hash printed by previous command and add a meaningful message
 git revert <hash>
 
 # push to remote
 git push
 ```
 
-With this approach each and every change is part of the repository and thus easier to comprehend.
+With this approach each and every change is part of the repository history and thus easier to comprehend.
 
 ## Which metrics does the demo app (kuard) provide?
 
@@ -277,7 +282,7 @@ Afterwards you can access prometheus in the browser via http://localhost:9090.
 
 If the question is related to the demo application then CI can be ignored as the final image was present already.
 
-If it's a general question then I'd look for some widely used solution that has proven its value already, especially in the Cloud Native world. My choice would be either GitHub Actions or something that is running directly inside the cluster (e.g. [Tekton](https://tekton.dev/) with [Kaniko](https://github.com/GoogleContainerTools/kaniko)).
+If it's a general question then I'd look for some widely used solution that has proven its value already, especially in the cloud native world. My choice would be either [GitHub Actions](https://github.com/features/actions) or something that is running directly inside the cluster (e.g. [Tekton](https://tekton.dev/) with [Kaniko](https://github.com/GoogleContainerTools/kaniko)).
 Another tool that looks promising is [Dagger](https://dagger.io/) which can close the gap between a developer machine and the CI system that will really build the final image and run all the other pipeline steps.
 
 Independent of the project I'd choose [Flux](https://fluxcd.io/) for the CD part. It allows the user to work with the GitOps approach, has an alerting system, works with various Git systems out of the box and supports various ways of keeping (unencrpyted) secrets out of the repository.
@@ -287,9 +292,9 @@ Additional Questions
 
 ## How do I expose an application via an ingress controller and what are ingress controllers in general used for?
 
-Ingress Controllers are (more or less) layer 7 load balancers which can be run in Kubernetes cluster. The name "controller" indicate that they listen on the K8s API to get notified when `Ingress` resources are created, updated or deleted. The controllers then adjust their configuration depending on what the `Ingress` resource is expecting. THe ingress controller usually comes with a K8s service which can be exposed with e.g. type `LoadBalancer` and can be seen as a single entry point to one or more services that are deployed in the cluster.
+Ingress Controllers are (more or less) layer 7 load balancers which can be run in Kubernetes clusters. The name "controller" indicates that they listen on the K8s API to get notified when `Ingress` resources are created, updated or deleted. The controllers then adjust their configuration depending on what the `Ingress` resource is expecting. The ingress controller usually comes with a K8s service which can be exposed with e.g. type `LoadBalancer` and can be seen as a single entry point to one or more services that are deployed in the cluster.
 
-There are some well known L7 load balancers (Nginx, HAProxy etc.) but also some other tools like Traefik.
+There are some ingress controller implementations that are built on top of well known L7 load balancers (Nginx, HAProxy etc.) but also some others like Traefik.
 
 The `Ingress` resources are built-in and don't need to be deployed explicitly. The main parts that can be configured in an `Ingress` resource are:
 
@@ -300,7 +305,7 @@ The `Ingress` resources are built-in and don't need to be deployed explicitly. T
 
 Domains will tell the ingress controller on which domain they should listen (HTTP `Host` header). Paths allow the user to separate the URL paths between different backends. A backend is the name of a service and a port so that the ingress controller knows where to route incoming requests. When it comes to TLS you can define where the ingress controller can find TLS certificates (in a secret) to secure the connection between the client and the L7 load balancer itself.
 
-These are the default features that ingress controllers support. Some implementations are extend these by either introducing custom resources or annotations.
+These are the default features that ingress controllers support. Some implementations extend these by either introducing custom resources or annotations.
 
 ## How could alerting in a K8s cluster look like? Which options are available?
 
@@ -337,4 +342,4 @@ Once a secret has been pushed to a Git remote it gets complicated to remove it a
 
 If the file has only been comitted locally and not yet pushed then it's also relatively easy to fix the issue with `git reset HEAD~1` to jump to the penultimate commit.
 
-If the history needs to be retained but the secret file needs to be removed then the best way is probably [`git-filter-repo`](https://github.com/newren/git-filter-repo). This is a tool to filter specific files in a repository and rewrite history. For big repositories it can take some time. After the filtering is done it needs to be pushed to the remote and all other users need to pull the repository again.
+If the history needs to be retained but the secret file needs to be removed then the best way is probably [`git-filter-repo`](https://github.com/newren/git-filter-repo). This is a tool to filter specific files in a repository and rewrite history. For big repositories it can take some time. After the filtering is done it needs to be pushed to the remote and all other users need to pull the repository again. One good thing though is that it is going to remove the current used origins in order to avoid a push by mistake.
